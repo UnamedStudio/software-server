@@ -1,0 +1,126 @@
+from collections.abc import Callable, Iterable
+from pathlib import Path
+from typing import Any
+from software_client.client import Client
+from multiprocessing.shared_memory import SharedMemory
+from numpy.typing import NDArray
+from numpy import array, copyto, float32, int32, ndarray
+
+
+def create_mesh(
+    client: Client, positions: NDArray[float], triangles: NDArray[float], path: Path
+) -> tuple[SharedMemory, SharedMemory]:
+    positions_shared = SharedMemory(create=True, size=positions.nbytes)
+    triangles_shared = SharedMemory(create=True, size=triangles.nbytes)
+    copyto(ndarray(positions.shape, positions.dtype, positions_shared.buf), positions)
+    copyto(ndarray(triangles.shape, triangles.dtype, triangles_shared.buf), triangles)
+    client.send(
+        {
+            "id": "create_mesh",
+            "params": {
+                "positions_name": positions_shared.name,
+                "triangles_name": triangles_shared.name,
+                "vertices_length": len(positions),
+                "triangles_length": len(triangles),
+                "path": str(path),
+            },
+        }
+    )
+    return (positions_shared, triangles_shared)
+
+
+def set_xform(
+    client: Client,
+    translation: NDArray[float],
+    rotation: NDArray[float],
+    scale: NDArray[float],
+    path: Path,
+):
+    client.send(
+        {
+            "id": "set_xform",
+            "params": {
+                "translation": translation.tolist(),
+                "rotation": rotation.tolist(),
+                "scale": scale.tolist(),
+                "path": str(path),
+            },
+        }
+    )
+
+
+def clear(client: Client):
+    client.send({"id": "clear", "params": None})
+
+
+class Command:
+    id: str
+
+    def run(self, *args, **kwargs): ...
+
+
+class SyncMesh(Command):
+    id = "sync_mesh"
+
+    def __init__(
+        self, callback: Callable[[NDArray[float32], NDArray[int32], Path, Any], None]
+    ) -> None:
+        self.callback = callback
+
+    def run(
+        self,
+        positions_name: str,
+        indices_name: str,
+        vertices_length: int,
+        indices_length: int,
+        path: str,
+    ):
+        positions_shared = SharedMemory(name=positions_name)
+        indices_shared = SharedMemory(name=indices_name)
+        positions = ndarray(
+            vertices_length * 3,
+            float32,
+            positions_shared.buf,
+        ).reshape(-1, 3)
+        indices = ndarray(
+            indices_length,
+            int32,
+            indices_shared.buf,
+        )
+        self.callback(
+            positions, indices, Path(path), (positions_shared, indices_shared)
+        )
+
+
+class SyncXform(Command):
+    id = "sync_xform"
+
+    def __init__(
+        self,
+        callback: Callable[
+            [NDArray[float], NDArray[float], NDArray[float], Path], None
+        ],
+    ) -> None:
+        self.callback = callback
+
+    def run(
+        self,
+        translation: tuple[float, ...],
+        rotation: tuple[float, ...],
+        scale: tuple[float, ...],
+        path: str,
+    ):
+        self.callback(array(translation), array(rotation), array(scale), Path(path))
+
+
+class RunCommands:
+    def __init__(self, commands: Iterable[Command]) -> None:
+        self.commands = dict((command.id, command) for command in commands)
+
+    def run(self, data: Any):
+        id = data["id"]
+        params = data["params"]
+        if command := self.commands.get(id):
+            command.run(**params)
+        else:
+            print(f"unknown command id: {id}")

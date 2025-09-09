@@ -1,0 +1,13 @@
+[project]
+name = "blender-server"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [{ name = "windwhiterain", email = "1712428442@qq.com" }]
+dependencies = ["fake-bpy-module>=20250829", "numpy>=2.3.2"]
+requires-python = "==3.11.*"
+readme = "README.md"
+license = { text = "MIT" }
+
+
+[tool.pdm]
+distribution = false
