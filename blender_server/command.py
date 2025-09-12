@@ -74,7 +74,7 @@ def sync():
                     "positions_name": positions_shared.name,
                     "indices_name": indices_shared.name,
                     "vertices_length": len(mesh.vertices),
-                    "indices_length": len(mesh.loops),
+                    "indices_length": len(mesh.loop_triangles) * 3,
                     "path": str(path),
                 },
             }
