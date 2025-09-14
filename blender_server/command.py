@@ -18,7 +18,6 @@ root: bpy.types.Collection | None = None
 @dataclass
 class SyncedMesh:
     obj: bpy.types.Object
-    shared: tuple[SharedMemory, SharedMemory] | None = None
 
 
 class Synced:
@@ -26,6 +25,7 @@ class Synced:
         self.connection = connection
         self.meshes = dict[Path, SyncedMesh]()
         self.xforms = dict[Path, bpy.types.Object]()
+        self.buffers = dict[str, SharedMemory]()
 
 
 synced: Synced | None = None
@@ -49,10 +49,8 @@ def sync():
         mesh = sync_mesh.obj.evaluated_get(depsgraph).to_mesh()
         mesh.calc_loop_triangles()
 
-        positions_shared = SharedMemory(create=True, size=len(mesh.vertices) * 3 * 4)
-        indices_shared = SharedMemory(
-            create=True, size=len(mesh.loop_triangles) * 3 * 4
-        )
+        positions_shared = create_buffer(size=len(mesh.vertices) * 3 * 4)
+        indices_shared = create_buffer(size=len(mesh.loop_triangles) * 3 * 4)
 
         positions = ndarray(
             shape=len(mesh.vertices) * 3,
@@ -79,8 +77,6 @@ def sync():
                 },
             }
         )
-
-        sync_mesh.shared = (positions_shared, indices_shared)
 
     for path, obj in synced.xforms.items():
         obj = obj.evaluated_get(depsgraph)
@@ -135,6 +131,29 @@ def create_mesh(
     assert synced
     synced.meshes[path] = SyncedMesh(obj)
 
+def receive_buffer(name: str):
+    assert synced
+    synced.connection.send(
+        {
+            "id": "recieve_buffer",
+            "params": {
+                "name": name,
+            },
+        }
+    )
+
+
+def create_buffer(size: int) -> SharedMemory:
+    assert synced
+    ret = SharedMemory(create=True, size=size)
+    synced.buffers[ret.name] = ret
+    return ret
+
+
+def release_buffer(name: str):
+    assert synced
+    assert synced.buffers.pop(name)
+
 
 def clear():
     assert root
@@ -171,6 +190,8 @@ def run(data: Any):
             case "set_xform":
                 params["path"] = Path(params["path"])
                 set_xform(**params)
+            case "received_buffer":
+                release_buffer(**params)
             case _:
                 print(f"unknown command id {id}")
 
