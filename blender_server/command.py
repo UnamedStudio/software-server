@@ -18,13 +18,20 @@ root: bpy.types.Collection | None = None
 @dataclass
 class SyncedMesh:
     obj: bpy.types.Object
+    sync: bool
+
+
+@dataclass
+class SyncedXform:
+    obj: bpy.types.Object
+    sync: bool
 
 
 class Synced:
     def __init__(self, connection: Connection) -> None:
         self.connection = connection
         self.meshes = dict[Path, SyncedMesh]()
-        self.xforms = dict[Path, bpy.types.Object]()
+        self.xforms = dict[Path, SyncedXform]()
         self.buffers = dict[str, SharedMemory]()
 
 
@@ -45,8 +52,10 @@ def sync_end():
 def sync():
     assert synced
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    for path, sync_mesh in synced.meshes.items():
-        mesh = sync_mesh.obj.evaluated_get(depsgraph).to_mesh()
+    for path, synced_mesh in synced.meshes.items():
+        if not synced_mesh.sync:
+            continue
+        mesh = synced_mesh.obj.evaluated_get(depsgraph).to_mesh()
         mesh.calc_loop_triangles()
 
         positions_shared = create_buffer(size=len(mesh.vertices) * 3 * 4)
@@ -78,7 +87,10 @@ def sync():
             }
         )
 
-    for path, obj in synced.xforms.items():
+    for path, synced_xform in synced.xforms.items():
+        if not synced_xform.sync:
+            continue
+        obj = synced_xform.obj
         obj = obj.evaluated_get(depsgraph)
 
         rotation = (
@@ -106,6 +118,7 @@ def create_mesh(
     vertices_length: int,
     triangles_length: int,
     path: Path,
+    sync: bool,
 ):
     mesh = bpy.data.meshes.new("Mesh")
     assert root
@@ -129,7 +142,7 @@ def create_mesh(
     obj.data = mesh
 
     assert synced
-    synced.meshes[path] = SyncedMesh(obj)
+    synced.meshes[path] = SyncedMesh(obj, sync)
 
 def receive_buffer(name: str):
     assert synced
@@ -165,6 +178,7 @@ def set_xform(
     rotation: tuple[float, ...],
     scale: tuple[float, ...],
     path: Path,
+    sync: bool,
 ):
     assert root
     obj = blender_util.create_object_hierarchy_from_path(root, path)
@@ -173,7 +187,7 @@ def set_xform(
     obj.scale = scale
 
     assert synced
-    synced.xforms[path] = obj
+    synced.xforms[path] = SyncedXform(obj, sync)
 
 
 def run(data: Any):

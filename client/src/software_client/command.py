@@ -8,7 +8,11 @@ from numpy import array, copyto, float32, int32, ndarray
 
 
 def create_mesh(
-    client: Client, positions: NDArray[float], triangles: NDArray[float], path: Path
+    client: Client,
+    positions: NDArray[float],
+    triangles: NDArray[float],
+    path: Path,
+    sync: bool,
 ):
     positions_shared = create_buffer(client, positions.nbytes)
     triangles_shared = create_buffer(client, triangles.nbytes)
@@ -23,6 +27,7 @@ def create_mesh(
                 "vertices_length": len(positions),
                 "triangles_length": len(triangles),
                 "path": str(path),
+                "sync": sync,
             },
         }
     )
@@ -34,6 +39,7 @@ def set_xform(
     rotation: NDArray[float],
     scale: NDArray[float],
     path: Path,
+    sync: bool,
 ):
     client.send(
         {
@@ -43,6 +49,7 @@ def set_xform(
                 "rotation": rotation.tolist(),
                 "scale": scale.tolist(),
                 "path": str(path),
+                "sync": sync,
             },
         }
     )
