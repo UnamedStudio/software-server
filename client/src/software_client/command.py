@@ -8,10 +8,14 @@ from numpy import array, copyto, float32, int32, ndarray
 
 
 def create_mesh(
-    client: Client, positions: NDArray[float], triangles: NDArray[float], path: Path
-) -> tuple[SharedMemory, SharedMemory]:
-    positions_shared = SharedMemory(create=True, size=positions.nbytes)
-    triangles_shared = SharedMemory(create=True, size=triangles.nbytes)
+    client: Client,
+    positions: NDArray[float],
+    triangles: NDArray[float],
+    path: Path,
+    sync: bool,
+):
+    positions_shared = create_buffer(client, positions.nbytes)
+    triangles_shared = create_buffer(client, triangles.nbytes)
     copyto(ndarray(positions.shape, positions.dtype, positions_shared.buf), positions)
     copyto(ndarray(triangles.shape, triangles.dtype, triangles_shared.buf), triangles)
     client.send(
@@ -23,10 +27,10 @@ def create_mesh(
                 "vertices_length": len(positions),
                 "triangles_length": len(triangles),
                 "path": str(path),
+                "sync": sync,
             },
         }
     )
-    return (positions_shared, triangles_shared)
 
 
 def set_xform(
@@ -35,6 +39,7 @@ def set_xform(
     rotation: NDArray[float],
     scale: NDArray[float],
     path: Path,
+    sync: bool,
 ):
     client.send(
         {
@@ -44,6 +49,7 @@ def set_xform(
                 "rotation": rotation.tolist(),
                 "scale": scale.tolist(),
                 "path": str(path),
+                "sync": sync,
             },
         }
     )
@@ -52,9 +58,20 @@ def set_xform(
 def clear(client: Client):
     client.send({"id": "clear", "params": None})
 
+def receive_buffer(client: Client, name: str):
+    client.send(
+        {
+            "id": "recieved_buffer",
+            "params": {
+                "name": name,
+            },
+        }
+    )
+
 
 class Command:
     id: str
+    client: Client
 
     def run(self, *args, **kwargs): ...
 
@@ -90,7 +107,8 @@ class SyncMesh(Command):
         self.callback(
             positions, indices, Path(path), (positions_shared, indices_shared)
         )
-
+        receive_buffer(self.client, positions_shared.name)
+        receive_buffer(self.client, indices_shared.name)
 
 class SyncXform(Command):
     id = "sync_xform"
@@ -113,14 +131,28 @@ class SyncXform(Command):
         self.callback(array(translation), array(rotation), array(scale), Path(path))
 
 
+def create_buffer(client: Client, size: int) -> SharedMemory:
+    ret = SharedMemory(create=True, size=size)
+    client.buffers[ret.name] = ret
+    return ret
+
+
+def release_buffer(client: Client, name: str):
+    assert client.buffers.pop(name)
+
+
 class RunCommands:
-    def __init__(self, commands: Iterable[Command]) -> None:
+    def __init__(self, commands: Iterable[Command], client: Client) -> None:
         self.commands = dict((command.id, command) for command in commands)
+        self.client = client
 
     def run(self, data: Any):
         id = data["id"]
         params = data["params"]
-        if command := self.commands.get(id):
+        if id == "receive_buffer":
+            release_buffer(**params)
+        elif command := self.commands.get(id):
+            command.client = self.client
             command.run(**params)
         else:
             print(f"unknown command id: {id}")

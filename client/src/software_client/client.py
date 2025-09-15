@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Callable, Iterable
 import json
+from multiprocessing.shared_memory import SharedMemory
 import threading
 from typing import Any
 
@@ -20,6 +21,7 @@ class Client:
         self.run_command = run_command
         self.on_start = on_start
         self.on_end = on_end
+        self.buffers = dict[str, SharedMemory]()
 
     def start(self, port: int):
         if not self.on:
