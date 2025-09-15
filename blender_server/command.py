@@ -38,8 +38,8 @@ def sync_start(connection: Connection):
 
 def sync_end():
     global synced
-    synced = None
     clear()
+    synced = None
 
 
 def sync():
@@ -137,7 +137,9 @@ def create_mesh(
 
 
 def clear():
-    assert root
+    assert root and synced
+    synced.meshes.clear()
+    synced.xforms.clear()
     blender_util.delete_collection_recursive(root, False)
 
 
