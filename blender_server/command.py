@@ -33,6 +33,7 @@ class Synced:
         self.meshes = dict[Path, SyncedMesh]()
         self.xforms = dict[Path, SyncedXform]()
         self.buffers = dict[str, SharedMemory]()
+        self.objects = dict[Path, bpy.types.Object]()
 
 
 synced: Synced | None = None
@@ -121,8 +122,8 @@ def create_mesh(
     sync: bool,
 ):
     mesh = bpy.data.meshes.new("Mesh")
-    assert root
-    obj = blender_util.create_object_hierarchy_from_path(root, path)
+    assert root and synced
+    obj = blender_util.create_object_hierarchy_from_path(root, path, synced.objects)
 
     positions_shared = SharedMemory(name=positions_name)
     triangles_shared = SharedMemory(name=triangles_name)
@@ -141,8 +142,8 @@ def create_mesh(
     mesh.update()
     obj.data = mesh
 
-    assert synced
     synced.meshes[path] = SyncedMesh(obj, sync)
+
 
 def receive_buffer(name: str):
     assert synced
@@ -172,7 +173,9 @@ def clear():
     assert root and synced
     synced.meshes.clear()
     synced.xforms.clear()
-    blender_util.delete_collection_recursive(root, False)
+    for obj in synced.objects.values():
+        bpy.data.objects.remove(obj, do_unlink=True)
+    synced.objects.clear()
 
 
 def set_xform(
@@ -182,14 +185,13 @@ def set_xform(
     path: Path,
     sync: bool,
 ):
-    assert root
-    obj = blender_util.create_object_hierarchy_from_path(root, path)
+    assert root and synced
+    obj = blender_util.create_object_hierarchy_from_path(root, path, synced.objects)
     obj.location = translation
     obj.rotation_mode = "QUATERNION"
     obj.rotation_quaternion = (rotation[3], rotation[0], rotation[1], rotation[2])
     obj.scale = scale
 
-    assert synced
     synced.xforms[path] = SyncedXform(obj, sync)
 
 

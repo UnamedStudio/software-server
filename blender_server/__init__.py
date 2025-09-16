@@ -57,10 +57,10 @@ class EndOperator(bpy.types.Operator):
     bl_label = "End"
 
     def execute(self, context: Context) -> ...:
-        if command.root:
-            blender_util.delete_collection_recursive(command.root)
         assert server
         server.end()
+        if command.root:
+            bpy.data.collections.remove(command.root)
         return {"FINISHED"}
 
 
@@ -110,7 +110,7 @@ def unregister():
     assert server
     server.end()
     if command.root:
-        blender_util.delete_collection_recursive(command.root)
+        bpy.data.collections.remove(command.root)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     property_group = getattr(bpy.types.Scene, property_group_idname)
