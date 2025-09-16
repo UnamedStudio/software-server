@@ -185,6 +185,7 @@ def set_xform(
     assert root
     obj = blender_util.create_object_hierarchy_from_path(root, path)
     obj.location = translation
+    obj.rotation_mode = "QUATERNION"
     obj.rotation_quaternion = (rotation[3], rotation[0], rotation[1], rotation[2])
     obj.scale = scale
 
