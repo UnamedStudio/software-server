@@ -149,7 +149,7 @@ class RunCommands:
     def run(self, data: Any):
         id = data["id"]
         params = data["params"]
-        if id == "receive_buffer":
+        if id == "received_buffer":
             release_buffer(**params)
         elif command := self.commands.get(id):
             command.client = self.client

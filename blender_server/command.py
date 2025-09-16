@@ -149,7 +149,7 @@ def receive_buffer(name: str):
     assert synced
     synced.connection.send(
         {
-            "id": "recieve_buffer",
+            "id": "recieved_buffer",
             "params": {
                 "name": name,
             },
