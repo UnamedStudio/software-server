@@ -32,6 +32,17 @@ def create_mesh(
         }
     )
 
+def create_cube(client: Client, size: float, path: Path):
+    client.send(
+        {
+            "id": "create_cube",
+            "params": {
+                "size": size,
+                "path": str(path),
+            },
+        }
+    )
+
 
 def set_xform(
     client: Client,

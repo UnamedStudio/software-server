@@ -4,7 +4,7 @@ from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 from typing import Any
 
-from numpy import float32, int32, ndarray
+from numpy import float32, int32, ndarray, array
 import bpy
 import bmesh
 
@@ -144,6 +144,44 @@ def create_mesh(
 
     synced.meshes[path] = SyncedMesh(obj, sync)
 
+def create_cube(
+    size: float,
+    path: Path,
+):
+    mesh = bpy.data.meshes.new("Mesh")
+    assert root and synced
+    obj = blender_util.create_object_hierarchy_from_path(root, path, synced.objects)
+
+    half_size = size / 2
+    # Define vertices and faces
+    verts = array(
+        (
+            (-1.0, -1.0, -1.0),
+            (1.0, -1.0, -1.0),
+            (1.0, 1.0, -1.0),
+            (-1.0, 1.0, -1.0),
+            (-1.0, -1.0, 1.0),
+            (1.0, -1.0, 1.0),
+            (1.0, 1.0, 1.0),
+            (-1.0, 1.0, 1.0),
+        )
+    )
+    verts *= half_size
+
+    faces = [
+        (0, 1, 2, 3),  # Bottom
+        (4, 5, 6, 7),  # Top
+        (0, 1, 5, 4),  # Front
+        (2, 3, 7, 6),  # Back
+        (1, 2, 6, 5),  # Right
+        (3, 0, 4, 7),  # Left
+    ]
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    obj.data = mesh
+
+    synced.meshes[path] = SyncedMesh(obj, False)
+
 
 def receive_buffer(name: str):
     assert synced
@@ -204,6 +242,9 @@ def run(data: Any):
             case "create_mesh":
                 params["path"] = Path(params["path"])
                 create_mesh(**params)
+            case "create_cube":
+                params["path"] = Path(params["path"])
+                create_cube(**params)
             case "clear":
                 clear()
             case "set_xform":
