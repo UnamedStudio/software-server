@@ -44,8 +44,11 @@ class StartOperator(bpy.types.Operator):
 
     def execute(self, context: Context) -> ...:
         assert bpy.context.collection
-        command.root = bpy.data.collections.new("Server")
-        bpy.context.collection.children.link(command.root)
+        collection = bpy.data.collections.new("Server")
+        command.collection_name = collection.name
+        scene = bpy.context.scene
+        assert scene
+        scene.collection.children.link(collection)
         assert server
         property_group: PropertyGroup = getattr(context.scene, property_group_idname)
         server.start(property_group.port)
@@ -59,8 +62,9 @@ class EndOperator(bpy.types.Operator):
     def execute(self, context: Context) -> ...:
         assert server
         server.end()
-        if command.root:
-            bpy.data.collections.remove(command.root)
+        if command.collection_name:
+            collection = bpy.data.collections[command.collection_name]
+            bpy.data.collections.remove(collection)
         return {"FINISHED"}
 
 
@@ -109,8 +113,9 @@ def register():
 def unregister():
     assert server
     server.end()
-    if command.root:
-        bpy.data.collections.remove(command.root)
+    if command.collection_name:
+        collection = bpy.data.collections[command.collection_name]
+        bpy.data.collections.remove(collection)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     property_group = getattr(bpy.types.Scene, property_group_idname)

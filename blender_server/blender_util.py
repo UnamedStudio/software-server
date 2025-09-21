@@ -2,12 +2,12 @@ from pathlib import Path
 import bpy
 
 def create_object_hierarchy_from_path(
-    root: bpy.types.Collection, path: Path, objects: dict[Path, bpy.types.Object]
+    root: bpy.types.Collection, path: Path, objects: dict[Path, str]
 ) -> bpy.types.Object:
     parts = path.parts
 
-    if obj := objects.get(path):
-        return obj
+    if obj_name := objects.get(path):
+        return bpy.data.objects[obj_name]
 
     if len(parts) > 1:
         parent_path = path.parent
@@ -19,7 +19,7 @@ def create_object_hierarchy_from_path(
 
     obj = bpy.data.objects.new(name, bpy.data.meshes.new("_"))
     root.objects.link(obj)
-    objects[path] = obj
+    objects[path] = obj.name
 
     if parent:
         obj.parent = parent

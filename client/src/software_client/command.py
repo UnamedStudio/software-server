@@ -72,7 +72,7 @@ def clear(client: Client):
 def receive_buffer(client: Client, name: str):
     client.send(
         {
-            "id": "recieved_buffer",
+            "id": "received_buffer",
             "params": {
                 "name": name,
             },
