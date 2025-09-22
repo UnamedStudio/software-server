@@ -1,5 +1,6 @@
 from asyncio import StreamWriter
 from dataclasses import dataclass
+from math import pi
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 from numpy import float32, int32, ndarray, array
 import bpy
 import bmesh
+from mathutils import Matrix
 
 from .server_ import Connection
 
@@ -83,7 +85,7 @@ def sync():
                     "indices_name": indices_shared.name,
                     "vertices_length": len(mesh.vertices),
                     "indices_length": len(mesh.loop_triangles) * 3,
-                    "path": str(path),
+                    "path": path.as_posix(),
                 },
             }
         )
@@ -107,7 +109,7 @@ def sync():
                     "translation": obj.location.to_tuple(),
                     "rotation": rotation,
                     "scale": obj.scale.to_tuple(),
-                    "path": str(path),
+                    "path": path.as_posix(),
                 },
             }
         )
@@ -188,6 +190,45 @@ def create_cube(
 
     synced.meshes[path] = SyncedMesh(obj.name, False)
 
+def create_cylinder(
+    radius: float,
+    height: float,
+    axis: str,
+    path: Path,
+):
+    mesh = bpy.data.meshes.new("Mesh")
+    assert collection_name and synced
+    collection = bpy.data.collections[collection_name]
+    obj = blender_util.create_object_hierarchy_from_path(
+        collection, path, synced.objects
+    )
+
+    matrix = Matrix.Identity(4)
+    if axis == "X":
+        matrix = Matrix.Rotation(pi / 2, 4, (0, 1, 0))
+    elif axis == "Y":
+        matrix = Matrix.Rotation(pi / 2, 4, (-1, 0, 0))
+    b_mesh = bmesh.new()
+    bmesh.ops.create_cone(
+        b_mesh,
+        cap_ends=True,
+        cap_tris=False,
+        segments=32,
+        radius1=radius,
+        radius2=radius,
+        depth=height,
+        matrix=matrix,
+    )
+
+    # Write the bmesh into the mesh
+    b_mesh.to_mesh(mesh)  # type: ignore
+    b_mesh.free()
+
+    mesh.update()
+    obj.data = mesh
+
+    synced.meshes[path] = SyncedMesh(obj.name, False)
+
 
 def receive_buffer(name: str):
     assert synced
@@ -255,6 +296,9 @@ def run(data: Any):
             case "create_cube":
                 params["path"] = Path(params["path"])
                 create_cube(**params)
+            case "create_cylinder":
+                params["path"] = Path(params["path"])
+                create_cylinder(**params)
             case "clear":
                 clear()
             case "set_xform":

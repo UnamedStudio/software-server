@@ -26,7 +26,7 @@ def create_mesh(
                 "triangles_name": triangles_shared.name,
                 "vertices_length": len(positions),
                 "triangles_length": len(triangles),
-                "path": str(path),
+                "path": path.as_posix(),
                 "sync": sync,
             },
         }
@@ -38,7 +38,23 @@ def create_cube(client: Client, size: float, path: Path):
             "id": "create_cube",
             "params": {
                 "size": size,
-                "path": str(path),
+                "path": path.as_posix(),
+            },
+        }
+    )
+
+
+def create_cylinder(
+    client: Client, radius: float, height: float, axis: str, path: Path
+):
+    client.send(
+        {
+            "id": "create_cylinder",
+            "params": {
+                "radius": radius,
+                "height": height,
+                "axis": axis,
+                "path": path.as_posix(),
             },
         }
     )
@@ -59,7 +75,7 @@ def set_xform(
                 "translation": translation.tolist(),
                 "rotation": rotation.tolist(),
                 "scale": scale.tolist(),
-                "path": str(path),
+                "path": path.as_posix(),
                 "sync": sync,
             },
         }
