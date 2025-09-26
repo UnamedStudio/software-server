@@ -130,19 +130,25 @@ def create_mesh(
         collection, path, synced.objects
     )
 
-    positions_shared = SharedMemory(name=positions_name)
-    triangles_shared = SharedMemory(name=triangles_name)
+    if positions_name:
+        positions_shared = SharedMemory(name=positions_name)
+        verts = ndarray(
+            (vertices_length, 3),
+            float32,
+            positions_shared.buf,
+        )
+    else:
+        verts = []
+    if triangles_name:
+        triangles_shared = SharedMemory(name=triangles_name)
+        faces = ndarray(
+            (triangles_length, 3),
+            int32,
+            triangles_shared.buf,
+        )
+    else:
+        faces = []
 
-    verts = ndarray(
-        (vertices_length, 3),
-        float32,
-        positions_shared.buf,
-    )
-    faces = ndarray(
-        (triangles_length, 3),
-        int32,
-        triangles_shared.buf,
-    )
     mesh.from_pydata(verts, [], faces)
     mesh.update()
     obj.data = mesh

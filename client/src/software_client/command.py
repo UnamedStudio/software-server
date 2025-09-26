@@ -16,14 +16,20 @@ def create_mesh(
 ):
     positions_shared = create_buffer(client, positions.nbytes)
     triangles_shared = create_buffer(client, triangles.nbytes)
-    copyto(ndarray(positions.shape, positions.dtype, positions_shared.buf), positions)
-    copyto(ndarray(triangles.shape, triangles.dtype, triangles_shared.buf), triangles)
+    if positions_shared:
+        copyto(
+            ndarray(positions.shape, positions.dtype, positions_shared.buf), positions
+        )
+    if triangles_shared:
+        copyto(
+            ndarray(triangles.shape, triangles.dtype, triangles_shared.buf), triangles
+        )
     client.send(
         {
             "id": "create_mesh",
             "params": {
-                "positions_name": positions_shared.name,
-                "triangles_name": triangles_shared.name,
+                "positions_name": positions_shared.name if positions_shared else "",
+                "triangles_name": triangles_shared.name if triangles_shared else "",
                 "vertices_length": len(positions),
                 "triangles_length": len(triangles),
                 "path": path.as_posix(),
@@ -158,10 +164,13 @@ class SyncXform(Command):
         self.callback(array(translation), array(rotation), array(scale), Path(path))
 
 
-def create_buffer(client: Client, size: int) -> SharedMemory:
-    ret = SharedMemory(create=True, size=size)
-    client.buffers[ret.name] = ret
-    return ret
+def create_buffer(client: Client, size: int) -> SharedMemory | None:
+    if size > 0:
+        ret = SharedMemory(create=True, size=size)
+        client.buffers[ret.name] = ret
+        return ret
+    else:
+        return None
 
 
 def release_buffer(client: Client, name: str):
