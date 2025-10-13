@@ -12,6 +12,7 @@ def create_mesh(
     positions: NDArray[float],
     triangles: NDArray[float],
     path: Path,
+    file_path: Path,
     sync: bool,
 ):
     positions_shared = create_buffer(client, positions.nbytes)
@@ -33,25 +34,37 @@ def create_mesh(
                 "vertices_length": len(positions),
                 "triangles_length": len(triangles),
                 "path": path.as_posix(),
+                "file_path": file_path.as_posix(),
                 "sync": sync,
             },
         }
     )
 
-def create_cube(client: Client, size: float, path: Path):
+def create_cube(
+    client: Client,
+    size: float,
+    path: Path,
+    file_path: Path,
+):
     client.send(
         {
             "id": "create_cube",
             "params": {
                 "size": size,
                 "path": path.as_posix(),
+                "file_path": file_path.as_posix(),
             },
         }
     )
 
 
 def create_cylinder(
-    client: Client, radius: float, height: float, axis: str, path: Path
+    client: Client,
+    radius: float,
+    height: float,
+    axis: str,
+    path: Path,
+    file_path: Path,
 ):
     client.send(
         {
@@ -61,6 +74,7 @@ def create_cylinder(
                 "height": height,
                 "axis": axis,
                 "path": path.as_posix(),
+                "file_path": file_path.as_posix(),
             },
         }
     )
@@ -72,6 +86,7 @@ def set_xform(
     rotation: NDArray[float],
     scale: NDArray[float],
     path: Path,
+    file_path: Path,
     sync: bool,
 ):
     client.send(
@@ -82,6 +97,7 @@ def set_xform(
                 "rotation": rotation.tolist(),
                 "scale": scale.tolist(),
                 "path": path.as_posix(),
+                "file_path": file_path.as_posix(),
                 "sync": sync,
             },
         }
@@ -113,7 +129,8 @@ class SyncMesh(Command):
     id = "sync_mesh"
 
     def __init__(
-        self, callback: Callable[[NDArray[float32], NDArray[int32], Path, Any], None]
+        self,
+        callback: Callable[[NDArray[float32], NDArray[int32], Path, Path, Any], None],
     ) -> None:
         self.callback = callback
 
@@ -124,6 +141,7 @@ class SyncMesh(Command):
         vertices_length: int,
         indices_length: int,
         path: str,
+        file_path: Path,
     ):
         positions_shared = SharedMemory(name=positions_name)
         indices_shared = SharedMemory(name=indices_name)
@@ -138,7 +156,11 @@ class SyncMesh(Command):
             indices_shared.buf,
         )
         self.callback(
-            positions, indices, Path(path), (positions_shared, indices_shared)
+            positions,
+            indices,
+            Path(path),
+            Path(file_path),
+            (positions_shared, indices_shared),
         )
         receive_buffer(self.client, positions_shared.name)
         receive_buffer(self.client, indices_shared.name)
@@ -149,7 +171,7 @@ class SyncXform(Command):
     def __init__(
         self,
         callback: Callable[
-            [NDArray[float], NDArray[float], NDArray[float], Path], None
+            [NDArray[float], NDArray[float], NDArray[float], Path, Path], None
         ],
     ) -> None:
         self.callback = callback
@@ -160,8 +182,15 @@ class SyncXform(Command):
         rotation: tuple[float, ...],
         scale: tuple[float, ...],
         path: str,
+        file_path: Path,
     ):
-        self.callback(array(translation), array(rotation), array(scale), Path(path))
+        self.callback(
+            array(translation),
+            array(rotation),
+            array(scale),
+            Path(path),
+            Path(file_path),
+        )
 
 
 def create_buffer(client: Client, size: int) -> SharedMemory | None:

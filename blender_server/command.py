@@ -2,6 +2,7 @@ from asyncio import StreamWriter
 from dataclasses import dataclass
 from math import pi
 from multiprocessing.shared_memory import SharedMemory
+from os import unlink
 from pathlib import Path
 from typing import Any
 
@@ -32,10 +33,11 @@ class SyncedXform:
 class Synced:
     def __init__(self, connection: Connection) -> None:
         self.connection = connection
-        self.meshes = dict[Path, SyncedMesh]()
-        self.xforms = dict[Path, SyncedXform]()
+        self.meshes = dict[tuple[Path, Path], SyncedMesh]()
+        self.xforms = dict[tuple[Path, Path], SyncedXform]()
         self.buffers = dict[str, SharedMemory]()
-        self.objects = dict[Path, str]()
+        self.objects = dict[tuple[Path, Path], str]()
+        self.collections = dict[Path, str]()
 
 
 synced: Synced | None = None
@@ -85,7 +87,8 @@ def sync():
                     "indices_name": indices_shared.name,
                     "vertices_length": len(mesh.vertices),
                     "indices_length": len(mesh.loop_triangles) * 3,
-                    "path": path.as_posix(),
+                    "path": path[0].as_posix(),
+                    "file_path": path[1].as_posix(),
                 },
             }
         )
@@ -109,7 +112,8 @@ def sync():
                     "translation": obj.location.to_tuple(),
                     "rotation": rotation,
                     "scale": obj.scale.to_tuple(),
-                    "path": path.as_posix(),
+                    "path": path[0].as_posix(),
+                    "file_path": path[1].as_posix(),
                 },
             }
         )
@@ -121,13 +125,14 @@ def create_mesh(
     vertices_length: int,
     triangles_length: int,
     path: Path,
+    file_path: Path,
     sync: bool,
 ):
     mesh = bpy.data.meshes.new("Mesh")
     assert collection_name and synced
     collection = bpy.data.collections[collection_name]
     obj = blender_util.create_object_hierarchy_from_path(
-        collection, path, synced.objects
+        collection, path, file_path, synced.objects, synced.collections
     )
 
     if positions_name:
@@ -153,17 +158,18 @@ def create_mesh(
     mesh.update()
     obj.data = mesh
 
-    synced.meshes[path] = SyncedMesh(obj.name, sync)
+    synced.meshes[(path, file_path)] = SyncedMesh(obj.name, sync)
 
 def create_cube(
     size: float,
     path: Path,
+    file_path: Path,
 ):
     mesh = bpy.data.meshes.new("Mesh")
     assert collection_name and synced
     collection = bpy.data.collections[collection_name]
     obj = blender_util.create_object_hierarchy_from_path(
-        collection, path, synced.objects
+        collection, path, file_path, synced.objects, synced.collections
     )
 
     half_size = size / 2
@@ -194,19 +200,20 @@ def create_cube(
     mesh.update()
     obj.data = mesh
 
-    synced.meshes[path] = SyncedMesh(obj.name, False)
+    synced.meshes[(path, file_path)] = SyncedMesh(obj.name, False)
 
 def create_cylinder(
     radius: float,
     height: float,
     axis: str,
     path: Path,
+    file_path: Path,
 ):
     mesh = bpy.data.meshes.new("Mesh")
     assert collection_name and synced
     collection = bpy.data.collections[collection_name]
     obj = blender_util.create_object_hierarchy_from_path(
-        collection, path, synced.objects
+        collection, path, file_path, synced.objects, synced.collections
     )
 
     matrix = Matrix.Identity(4)
@@ -233,7 +240,7 @@ def create_cylinder(
     mesh.update()
     obj.data = mesh
 
-    synced.meshes[path] = SyncedMesh(obj.name, False)
+    synced.meshes[(path, file_path)] = SyncedMesh(obj.name, False)
 
 
 def receive_buffer(name: str):
@@ -266,8 +273,12 @@ def clear():
     synced.xforms.clear()
     for obj_name in synced.objects.values():
         obj = bpy.data.objects[obj_name]
-        bpy.data.objects.remove(object=obj, do_unlink=True)
+        bpy.data.objects.remove(obj, do_unlink=True)
     synced.objects.clear()
+    for file_collection_name in synced.collections.values():
+        collection = bpy.data.collections[file_collection_name]
+        bpy.data.collections.remove(collection, do_unlink=True)
+    synced.collections.clear()
 
 
 def set_xform(
@@ -275,40 +286,42 @@ def set_xform(
     rotation: tuple[float, ...],
     scale: tuple[float, ...],
     path: Path,
+    file_path: Path,
     sync: bool,
 ):
     assert collection_name and synced
     collection = bpy.data.collections[collection_name]
     obj = blender_util.create_object_hierarchy_from_path(
-        collection, path, synced.objects
+        collection, path, file_path, synced.objects, synced.collections
     )
     obj.location = translation
     obj.rotation_mode = "QUATERNION"
     obj.rotation_quaternion = (rotation[3], rotation[0], rotation[1], rotation[2])
     obj.scale = scale
 
-    synced.xforms[path] = SyncedXform(obj.name, sync)
+    synced.xforms[(path, file_path)] = SyncedXform(obj.name, sync)
 
 
 def run(data: Any):
     id = data["id"]
     params = data["params"]
+    if params:
+        if path := params.get("path"):
+            params["path"] = Path(path)
+        if path := params.get("file_path"):
+            params["file_path"] = Path(path)
 
     def run_():
         match id:
             case "create_mesh":
-                params["path"] = Path(params["path"])
                 create_mesh(**params)
             case "create_cube":
-                params["path"] = Path(params["path"])
                 create_cube(**params)
             case "create_cylinder":
-                params["path"] = Path(params["path"])
                 create_cylinder(**params)
             case "clear":
                 clear()
             case "set_xform":
-                params["path"] = Path(params["path"])
                 set_xform(**params)
             case "received_buffer":
                 release_buffer(**params)
