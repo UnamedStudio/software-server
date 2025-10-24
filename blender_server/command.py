@@ -1,4 +1,5 @@
 from asyncio import StreamWriter
+from collections import defaultdict
 from dataclasses import dataclass
 from math import pi
 from multiprocessing.shared_memory import SharedMemory
@@ -18,25 +19,24 @@ from . import blender_util
 collection_name: str | None = None
 
 @dataclass
-class SyncedPrim:
+class SyncedSchema:
     prim_path: Path
     file_path: Path
     obj_name: str
     sync: bool
 
 @dataclass
-class SyncedMesh(SyncedPrim): ...
+class SyncedMesh(SyncedSchema): ...
 
 
 @dataclass
-class SyncedXform(SyncedPrim): ...
+class SyncedXform(SyncedSchema): ...
 
 
 class Synced:
     def __init__(self, connection: Connection) -> None:
         self.connection = connection
-        self.prims = dict[tuple[Path, Path], SyncedPrim]()
-        self.obj2prim = dict[str, SyncedPrim]()
+        self.schemas = defaultdict[tuple[Path, Path], list[SyncedSchema]](lambda: [])
         self.objects = dict[tuple[Path, Path], str]()
         self.buffers = dict[str, SharedMemory]()
         self.collections = dict[Path, str]()
@@ -59,71 +59,72 @@ def sync_end():
 def sync():
     assert synced
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    for object_name, synced_prim in synced.prims.items():
-        if not synced_prim.sync:
-            continue
-        object = bpy.data.objects[synced_prim.obj_name]
-        if isinstance(synced_prim, SyncedMesh):
-            mesh = (
-                bpy.data.objects[synced_prim.obj_name]
-                .evaluated_get(depsgraph)
-                .to_mesh()
-            )
-            mesh.calc_loop_triangles()
+    for synced_prims in synced.schemas.values():
+        for synced_prim in synced_prims:
+            if not synced_prim.sync:
+                continue
+            object = bpy.data.objects[synced_prim.obj_name]
+            if isinstance(synced_prim, SyncedMesh):
+                mesh = (
+                    bpy.data.objects[synced_prim.obj_name]
+                    .evaluated_get(depsgraph)
+                    .to_mesh()
+                )
+                mesh.calc_loop_triangles()
 
-            positions_shared = create_buffer(size=len(mesh.vertices) * 3 * 4)
-            indices_shared = create_buffer(size=len(mesh.loop_triangles) * 3 * 4)
+                positions_shared = create_buffer(size=len(mesh.vertices) * 3 * 4)
+                indices_shared = create_buffer(size=len(mesh.loop_triangles) * 3 * 4)
 
-            positions = ndarray(
-                shape=len(mesh.vertices) * 3,
-                dtype=float32,
-                buffer=positions_shared.buf,
-            )
+                positions = ndarray(
+                    shape=len(mesh.vertices) * 3,
+                    dtype=float32,
+                    buffer=positions_shared.buf,
+                )
 
-            indices = ndarray(
-                shape=len(mesh.loop_triangles) * 3,
-                dtype=int32,
-                buffer=indices_shared.buf,
-            )
+                indices = ndarray(
+                    shape=len(mesh.loop_triangles) * 3,
+                    dtype=int32,
+                    buffer=indices_shared.buf,
+                )
 
-            mesh.vertices.foreach_get("co", positions)
-            mesh.loop_triangles.foreach_get("vertices", indices)
+                mesh.vertices.foreach_get("co", positions)
+                mesh.loop_triangles.foreach_get("vertices", indices)
 
-            synced.connection.send(
-                {
-                    "id": "sync_mesh",
-                    "params": {
-                        "positions_name": positions_shared.name,
-                        "indices_name": indices_shared.name,
-                        "vertices_length": len(mesh.vertices),
-                        "indices_length": len(mesh.loop_triangles) * 3,
-                        "path": synced_prim.prim_path.as_posix(),
-                        "file_path": synced_prim.file_path.as_posix(),
-                    },
-                }
-            )
+                synced.connection.send(
+                    {
+                        "id": "sync_mesh",
+                        "params": {
+                            "positions_name": positions_shared.name,
+                            "indices_name": indices_shared.name,
+                            "vertices_length": len(mesh.vertices),
+                            "indices_length": len(mesh.loop_triangles) * 3,
+                            "path": synced_prim.prim_path.as_posix(),
+                            "file_path": synced_prim.file_path.as_posix(),
+                        },
+                    }
+                )
 
-        elif isinstance(synced_prim, SyncedXform):
-            object = object.evaluated_get(depsgraph)
+            elif isinstance(synced_prim, SyncedXform):
+                object = object.evaluated_get(depsgraph)
 
-            rotation = (
-                object.rotation_quaternion[1],
-                object.rotation_quaternion[2],
-                object.rotation_quaternion[3],
-                object.rotation_quaternion[0],
-            )
-            synced.connection.send(
-                {
-                    "id": "sync_xform",
-                    "params": {
-                        "translation": object.location.to_tuple(),
-                        "rotation": rotation,
-                        "scale": object.scale.to_tuple(),
-                        "path": synced_prim.prim_path.as_posix(),
-                        "file_path": synced_prim.file_path.as_posix(),
-                    },
-                }
-            )
+                rotation = (
+                    object.rotation_quaternion[1],
+                    object.rotation_quaternion[2],
+                    object.rotation_quaternion[3],
+                    object.rotation_quaternion[0],
+                )
+                synced.connection.send(
+                    {
+                        "id": "sync_xform",
+                        "params": {
+                            "translation": object.location.to_tuple(),
+                            "rotation": rotation,
+                            "scale": object.scale.to_tuple(),
+                            "path": synced_prim.prim_path.as_posix(),
+                            "file_path": synced_prim.file_path.as_posix(),
+                        },
+                    }
+                )
 
 
 def create_mesh(
@@ -165,7 +166,9 @@ def create_mesh(
     mesh.update()
     obj.data = mesh
 
-    synced.prims[(path, file_path)] = SyncedMesh(path, file_path, obj.name, sync)
+    synced.schemas[(path, file_path)].append(
+        SyncedMesh(path, file_path, obj.name, sync)
+    )
 
 def create_cube(
     size: float,
@@ -207,7 +210,9 @@ def create_cube(
     mesh.update()
     obj.data = mesh
 
-    synced.prims[(path, file_path)] = SyncedMesh(path, file_path, obj.name, False)
+    synced.schemas[(path, file_path)].append(
+        SyncedXform(path, file_path, obj.name, False)
+    )
 
 def create_cylinder(
     radius: float,
@@ -247,7 +252,9 @@ def create_cylinder(
     mesh.update()
     obj.data = mesh
 
-    synced.prims[(path, file_path)] = SyncedMesh(path, file_path, obj.name, False)
+    synced.schemas[(path, file_path)].append(
+        SyncedXform(path, file_path, obj.name, False)
+    )
 
 
 def receive_buffer(name: str):
@@ -276,7 +283,7 @@ def release_buffer(name: str):
 
 def clear():
     assert collection_name and synced
-    synced.prims.clear()
+    synced.schemas.clear()
     for obj_name in synced.objects.values():
         obj = bpy.data.objects[obj_name]
         bpy.data.objects.remove(obj, do_unlink=True)
@@ -305,7 +312,9 @@ def set_xform(
     obj.rotation_quaternion = (rotation[3], rotation[0], rotation[1], rotation[2])
     obj.scale = scale
 
-    synced.prims[(path, file_path)] = SyncedXform(path, file_path, obj.name, sync)
+    synced.schemas[(path, file_path)].append(
+        SyncedXform(path, file_path, obj.name, sync)
+    )
 
 
 def run(data: Any):
